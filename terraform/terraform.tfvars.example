@@ -1,0 +1,38 @@
+# Terraform Variables Example
+# Copy this file to terraform.tfvars and fill in your values
+
+# AWS Configuration
+aws_region     = "us-east-1"
+project_name   = "postgres-docker-lab"
+
+# EC2 Configuration
+instance_type      = "t3.small"    # t3.micro or t3.small for cost savings
+root_volume_size   = 20            # GB, can be increased later
+
+# Database Configuration
+db_user     = "postgres"
+db_password = "ChangeMe123!SecurePassword456"  # CHANGE THIS! Min 12 characters
+db_name     = "myapp_db"
+
+# Key Pair Configuration
+# REQUIRED: This must already exist in your AWS account
+key_pair_name = "your-key-pair-name"
+
+# Security Configuration
+# IMPORTANT: Change these to restrict access to YOUR IP address only!
+# Get your IP with: curl https://checkip.amazonaws.com
+
+allowed_ssh_cidr = ["0.0.0.0/0"]        # WARNING: Restrict to YOUR_IP/32 in production
+allowed_pgadmin_cidr = ["0.0.0.0/0"]    # WARNING: Restrict access in production
+allowed_postgres_cidr = ["10.0.0.0/16"] # VPC CIDR for internal access
+
+# Tags
+tags = {
+  Environment = "Development"
+  ManagedBy   = "Terraform"
+  Portfolio   = "Systems Engineer"
+  CreatedBy   = "Your Name"
+}
+
+# Optional: Enable detailed CloudWatch monitoring
+enable_detailed_monitoring = false

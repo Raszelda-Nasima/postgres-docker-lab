@@ -27,10 +27,12 @@ terraform/*_override.tf.json
 *.iml
 
 # Logs and backups
-backups/
+# backups/ - commented out, we want to track backup scripts
 logs/
 *.log
-*.sql
+# *.sql - commented out, we want to track security/setup scripts
+# but do ignore .sql files in root directory
+/*.sql
 
 # Docker
 docker-compose.override.yml

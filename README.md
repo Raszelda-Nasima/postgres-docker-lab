@@ -1,6 +1,6 @@
 # PostgreSQL & Docker Lab Project
 
-A containerized PostgreSQL database environment for learning Docker, Linux systems administration, and database management. Perfect for a systems engineer portfolio.
+A containerized PostgreSQL database environment for learning Docker, Linux systems administration, and database management.
 
 ## Project Structure
 
@@ -183,7 +183,3 @@ sudo chown -R 999:999 postgres_data/
 ## Author
 
 Raszelda Sharon Nasima - Systems Engineer Portfolio Project
-
-## License
-
-MIT License - feel free to use this for learning and interviews!

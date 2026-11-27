@@ -1,45 +1,71 @@
 #!/bin/bash
 # Full database backup using pg_dump
-# Systems engineer: handles schema + data, compression, versioning
 
-set -e  # Exit on error
+set -Eeuo pipefail
 
-BACKUP_DIR="./backups"
-DB_NAME="myapp_db"
-DB_USER="postgres"
-CONTAINER_NAME="postgres"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
+BACKUP_DIR="${BACKUP_DIR:-$PROJECT_DIR/backups}"
+RETENTION_COUNT="${RETENTION_COUNT:-7}"
+COMPOSE_SERVICE="${COMPOSE_SERVICE:-postgres}"
+
+cd "$PROJECT_DIR"
+
+if [[ -f .env ]]; then
+  set -a
+  . ./.env
+  set +a
+fi
+
+DB_NAME="${DB_NAME:-myapp_db}"
+DB_USER="${DB_USER:-postgres}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="$BACKUP_DIR/full_backup_${TIMESTAMP}.sql.gz"
+TEMP_FILE="$BACKUP_FILE.tmp"
 
-# Create backup directory if it doesn't exist
+if ! [[ "$RETENTION_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+  echo "❌ RETENTION_COUNT must be a positive integer" >&2
+  exit 1
+fi
+
 mkdir -p "$BACKUP_DIR"
+
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE=(docker-compose)
+else
+  echo "❌ Docker Compose is not available" >&2
+  exit 1
+fi
+
+if ! "${COMPOSE[@]}" ps --status running "$COMPOSE_SERVICE" | tail -n +2 | grep -q .; then
+  echo "❌ Compose service '$COMPOSE_SERVICE' is not running" >&2
+  exit 1
+fi
 
 echo "[$(date)] Starting full database backup..."
 echo "[$(date)] Backup file: $BACKUP_FILE"
 
-# Run pg_dump through Docker
-if docker ps | grep -q "$CONTAINER_NAME"; then
-    # Use pg_dump to create backup
-    docker exec "$CONTAINER_NAME" pg_dump \
-      -U "$DB_USER" \
-      "$DB_NAME" | gzip > "$BACKUP_FILE"
-    
-    # Verify backup was created
-    if [ -f "$BACKUP_FILE" ] && [ -s "$BACKUP_FILE" ]; then
-        SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
-        echo "[$(date)] ✅ Backup succeeded: $BACKUP_FILE ($SIZE)"
-        
-        # Keep only last 7 backups (retention policy)
-        echo "[$(date)] Cleaning up old backups (keeping last 7)..."
-        ls -1t "$BACKUP_DIR"/full_backup_*.sql.gz 2>/dev/null | tail -n +8 | xargs -r rm 2>/dev/null || true
-        
-        echo "[$(date)] Backup process completed successfully"
-        exit 0
-    else
-        echo "[$(date)] ❌ Backup file is empty!"
-        exit 1
-    fi
-else
-    echo "[$(date)] ❌ Container '$CONTAINER_NAME' is not running!"
-    exit 1
+trap 'rm -f "$TEMP_FILE"' EXIT
+
+if ! "${COMPOSE[@]}" exec -T "$COMPOSE_SERVICE" pg_dump --clean --if-exists --format=plain -U "$DB_USER" "$DB_NAME" | gzip -c > "$TEMP_FILE"; then
+  echo "❌ pg_dump failed" >&2
+  exit 1
 fi
+
+if ! gzip -t "$TEMP_FILE"; then
+  echo "❌ Backup gzip integrity check failed" >&2
+  exit 1
+fi
+
+mv "$TEMP_FILE" "$BACKUP_FILE"
+trap - EXIT
+
+SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+echo "[$(date)] ✅ Backup succeeded: $BACKUP_FILE ($SIZE)"
+
+echo "[$(date)] Cleaning up old backups (keeping last $RETENTION_COUNT)..."
+find "$BACKUP_DIR" -maxdepth 1 -type f -name 'full_backup_*.sql.gz' -printf '%T@ %p\n' | sort -nr | tail -n +$((RETENTION_COUNT + 1)) | cut -d' ' -f2- | xargs -r rm -f
+
+echo "[$(date)] Backup process completed successfully"

@@ -1,23 +1,11 @@
-# Environment variables
+# Ignore local environment and secrets
 .env
 .env.local
 .env.*.local
+.env.prod
+.env.staging
 
-# Terraform
-terraform/.terraform/
-terraform/.terraform.lock.hcl
-terraform/*.tfstate
-terraform/*.tfstate.*
-terraform/tfplan
-terraform/terraform.tfvars
-terraform/*.tfvars
-terraform/crash.log
-terraform/override.tf
-terraform/override.tf.json
-terraform/*_override.tf
-terraform/*_override.tf.json
-
-# IDE
+# IDE and OS files
 .vscode/
 .idea/
 *.swp
@@ -25,34 +13,26 @@ terraform/*_override.tf.json
 *~
 .DS_Store
 *.iml
+Thumbs.db
 
 # Logs and backups
-# backups/ - commented out, we want to track backup scripts
 logs/
 *.log
-# *.sql - commented out, we want to track security/setup scripts
-# but do ignore .sql files in root directory
+backups/
 /*.sql
 
-# Docker
+# Docker local state/configuration
 docker-compose.override.yml
 postgres_data/
 
-# SSH Keys
+# Keys and certificates
 *.pem
 *.pub
 *.key
-
-# Certificates
 *.crt
 *.csr
 
-# OS
-.env.prod
-.env.staging
-Thumbs.db
-
-# Misc
+# Miscellaneous
 .cache/
 *.bak
 .tmp/

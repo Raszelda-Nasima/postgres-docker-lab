@@ -10,7 +10,7 @@ This guide documents the local Docker Compose lab. Database security and perform
 - `products`: name, optional description, positive price, non-negative stock, and creation timestamp.
 - `orders`: foreign keys to users and products, positive quantity, non-negative total price, and order timestamp.
 
-The script adds indexes for order user, product, order date, and user/date lookup. Docker runs initialization scripts only when it initializes an empty data volume.
+The script adds indexes for order user, product, order date, and user/date lookup. It creates schema objects only; it inserts no sample records. Docker runs initialization scripts only when it initializes an empty data volume.
 
 ## Optional security setup
 
@@ -42,31 +42,49 @@ This runs the read-only queries in `monitoring/performance.sql`: database size, 
 
 ## Backups and recovery
 
-The repository provides `backup-scripts/full_backup.sh` and `backup-scripts/restore_backup.sh`. Both target the Compose service `postgres`, not an explicitly named container.
-
-Create a backup:
+Create a compressed backup manually:
 
 ```bash
 make backup
 ```
 
-Backups are gzip-compressed SQL dumps under `backups/`. A backup is moved into place only after `gzip -t` confirms that it is valid. The default retention policy keeps the newest seven backup files.
+Backups are stored under `backups/` by default. Each completed dump is gzip-tested before being atomically moved into place. The default retention policy keeps the seven newest timestamped backup files; older files are removed only after a new backup succeeds.
 
-Override the backup location or retention with environment variables:
+Override the directory and retention count for a manual run:
 
 ```bash
 BACKUP_DIR=/secure/path/pg-backups RETENTION_COUNT=14 make backup
 ```
 
-Restore a backup:
+### Schedule daily backups with host cron
 
-```bash
-make restore BACKUP=./backups/full_backup_20231120_020000.sql.gz
+The sample crontab runs a backup every day at 02:00 host local time. It assumes Linux, Docker Compose, `flock`, and a host user whose account can access Docker and the project checkout.
+
+1. Replace `/absolute/path/to/postgres-docker-lab` in `backup-scripts/postgres-backup.cron.example` with the absolute checkout path.
+2. Install the entry for the Docker-owning user:
+
+   ```bash
+   crontab -e
+   ```
+
+3. Paste the uncommented schedule line from the example. Do not install it as root unless root owns the intended Docker context and backup files.
+4. Check `logs/backup-cron.log` after the scheduled time. The wrapper serializes scheduled executions with `flock`; if one is already running, the next run is logged and skipped.
+
+The schedule and policy can be adjusted in the crontab. For example, to run at 02:00 daily while keeping 14 local copies:
+
+```cron
+0 2 * * * RETENTION_COUNT=14 /absolute/path/to/postgres-docker-lab/backup-scripts/scheduled_backup.sh
 ```
 
-The restore script validates the gzip file, requires typing `yes`, drops the configured database, recreates it, applies the dump, and prints row counts for the three business tables.
+The wrapper logs stdout and errors to `logs/backup-cron.log`; `logs/` and `backups/` are git-ignored. Rotate or cap this log on long-running hosts. Backups and logs remain on the host by default, so this schedule alone does not protect against host or disk loss. Off-host copies are a separate recovery control.
 
-This is destructive and must not be run against a database unless an isolated test or explicit recovery is intended. Before recovery, stop application writes, confirm the dump target and database name, and copy the backup outside the host if the host itself may be affected.
+Restore a backup manually (destructive; requires typing `yes`):
+
+```bash
+make restore BACKUP=./backups/full_backup_YYYYMMDD_HHMMSS.sql.gz
+```
+
+The restore command validates gzip integrity, drops and recreates the configured database, applies the dump, and reports row counts for the three business tables. Use only when recovery is intended or in an isolated test environment. Stop application writes and confirm the backup and database target before proceeding.
 
 ## Encryption and local secrets
 

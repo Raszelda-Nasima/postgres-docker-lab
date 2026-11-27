@@ -1,0 +1,8 @@
+# Host crontab example: run once daily at 02:00 host local time.
+# Replace /absolute/path/to/postgres-docker-lab with the project checkout path.
+# Install the uncommented entry with: crontab -e
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+0 2 * * * /absolute/path/to/postgres-docker-lab/backup-scripts/scheduled_backup.sh

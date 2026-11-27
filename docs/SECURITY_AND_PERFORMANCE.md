@@ -1,16 +1,22 @@
-# Security, auditing, and performance (local PostgreSQL)
+# Security, Auditing, and Performance (Local PostgreSQL)
 
-These controls use PostgreSQL and Docker locally; they do not depend on AWS. AWS deployment and cloud-managed encryption are intentionally out of scope.
+These controls use PostgreSQL and Docker locally. The repository does not configure AWS or other cloud infrastructure.
 
-## Schema
+## Schema and constraints
 
-`init-scripts/01_schema.sql` defines `public.users`, `public.products`, and `public.orders`, including primary/foreign keys, data checks, and indexes for order lookups. Docker's PostgreSQL image runs initialization SQL only when creating a new, empty data directory. Existing named volumes are not migrated by adding this file; inspect and back up existing data, then apply an intentional migration rather than deleting the volume.
+`init-scripts/01_schema.sql` creates `public.users`, `public.products`, and `public.orders`, with identity primary keys, unique user fields, foreign keys, data checks, timestamps, and indexes for order lookups. The script runs only when PostgreSQL initializes an empty data volume and does not seed sample records.
 
-## RBAC
+## Least-privilege roles
 
-The optional `security/setup_roles.sql` creates the non-login group roles `lab_readonly` and `lab_app`, then grants table/sequence permissions. It does not create login accounts or store passwords. Apply it after the schema with `make security-roles`.
+Run the optional grants after the schema exists:
 
-Create individual login roles interactively from the database administrator's `psql` session so passwords are not embedded in repository files or shell history:
+```bash
+make security-roles
+```
+
+`security/setup_roles.sql` creates non-login group roles `lab_readonly` and `lab_app`; it grants read access to the former and table/sequence access to the latter. It does not create login roles or embed passwords. The `ALTER DEFAULT PRIVILEGES` grants affect future objects created by the role that runs the script, so apply equivalent defaults for any other object-owner roles as needed.
+
+Create individual login roles interactively from an administrator's `psql` session, then set passwords using psql's password prompt:
 
 ```sql
 CREATE ROLE reporting_login LOGIN IN ROLE lab_readonly;
@@ -19,28 +25,28 @@ CREATE ROLE app_login LOGIN IN ROLE lab_app;
 \\password app_login
 ```
 
-The default-privilege grants in the script apply to future objects created by the role that ran it. Re-run the grants for other object-owner roles if the project later creates tables under a different owner. Keep the administrator account for administration; use `lab_app`-member logins for application access.
+## Row-change auditing
 
-## Audit logging
+Enable the optional triggers after the schema exists:
 
-`security/enable_auditing.sql` installs triggers for all three business tables. Apply it with `make audit-enable`. It captures row images for INSERT, UPDATE, and DELETE and the authenticated `session_user`; it does not record SELECT activity. Audit rows are transactional, so a failed business transaction does not leave a committed audit record. Treat the audit table as sensitive because row images can contain personal data. A database superuser or owner can modify audit records; this is change tracking, not tamper-proof compliance logging.
-
-## Performance checks
-
-Run `make performance` to execute read-only snapshots for table sizes, approximate row/dead-row counts, cache statistics, and index usage. Use `EXPLAIN (ANALYZE, BUFFERS)` on representative SELECT queries when investigating plans; `ANALYZE` executes the query, so use care with statements that modify data. Statistics are workload-dependent and resettable—don't remove an index solely because its scan count is currently low.
-
-For normalized query-level statistics, PostgreSQL 16 includes `pg_stat_statements`, but it must be preloaded at server start. This is optional and is not enabled by the base Compose configuration. To enable it, add `command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]` to the `postgres` service, recreate/restart the container without removing the named volume, then create the extension once as administrator:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+```bash
+make audit-enable
 ```
 
-Use a backup and planned restart before changing server startup configuration. Do not run `docker-compose down -v` to enable it.
+`security/enable_auditing.sql` creates the `audit` schema and `audit.table_log`, then installs AFTER triggers on `public.users`, `public.products`, and `public.orders`. It records INSERT, UPDATE, and DELETE operations, including old/new row JSON where applicable and the session user. It does not audit reads. Audit entries are written in the transaction of the change, so a rolled-back change does not leave a committed audit row.
 
-## Encryption and secrets
+## Performance snapshots
 
-The Compose `.env` file is ignored by Git. Copy `.env.example` to `.env` and replace both example passwords before starting services. Never commit `.env` or real credentials.
+```bash
+make performance
+```
 
-For encryption at rest in a local lab, store Docker's data directory/volume on a host disk protected by the operating system's disk encryption (for example BitLocker, FileVault, or LUKS). PostgreSQL's Docker volume is not automatically encrypted. File/volume copies and SQL dumps need separate protection too.
+This executes the read-only statements in `monitoring/performance.sql`: database size, estimated live/dead rows, cache hit ratio, and index statistics. It needs no additional service or extension. Statistics are workload-dependent and may reset after server restarts or manual resets. Use `EXPLAIN (ANALYZE, BUFFERS)` for representative query-plan investigation.
 
-Encryption in transit requires PostgreSQL TLS certificates and client settings; it is not enabled by the default local Compose setup. The PostgreSQL host port is published on the host, so keep this lab on a trusted machine/network and do not expose it publicly without a deliberate network and TLS configuration.
+The Compose configuration does not preload `pg_stat_statements` or enable query-level statistics. Enabling it requires PostgreSQL startup configuration and a planned restart; it is not part of the default lab.
+
+## Secrets, encryption, and network exposure
+
+Copy `.env.example` to `.env`, replace both example passwords with unique values, and never commit `.env` or real credentials. Compose requires `DB_PASSWORD`, `PGADMIN_DEFAULT_EMAIL`, and `PGADMIN_DEFAULT_PASSWORD`; database user/name default to `postgres` and `myapp_db`.
+
+PostgreSQL TLS is not configured by default. The database port is published on the host as 5433, so keep the lab on a trusted host/network and restrict access as needed. PostgreSQL does not encrypt the Docker volume itself; use host/storage encryption and protect backup files with appropriate access controls.

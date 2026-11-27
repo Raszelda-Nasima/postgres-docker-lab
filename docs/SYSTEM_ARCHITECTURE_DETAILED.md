@@ -1,19 +1,43 @@
-# Local-only system architecture
+# Detailed Local System Architecture
 
-This document describes the local Docker Compose setup. PostgreSQL 16 and PgAdmin 4 run as separate containers connected by the `postgres_network` bridge.
+This document describes the local Docker Compose setup. It does not describe a cloud deployment; Terraform files in this repository declare no infrastructure resources.
 
-## Services and persistence
+## Services and networking
 
-- PostgreSQL uses `postgres:16-alpine`, reads its credentials from environment variables, and runs SQL initialization files from `init-scripts/` on first initialization.
-- PostgreSQL data is stored in the `postgres_data` named volume and persists when containers are stopped or recreated.
-- PgAdmin uses `dpage/pgadmin4:latest` and waits for PostgreSQL's health check before starting.
-- PostgreSQL is exposed on host port 5433 (container port 5432); PgAdmin is exposed on host port 5050.
+| Component | Configuration |
+|---|---|
+| PostgreSQL | `postgres:16-alpine`; Compose service `postgres`; container `postgres_db`; container port 5432, published as host port 5433 |
+| PgAdmin | `dpage/pgadmin4:latest`; container `pgadmin`; container port 80, published as host port 5050; `SCRIPT_NAME=/pgadmin` |
+| Network | User-defined bridge network `postgres_network` |
+| Storage | Named volume `postgres_data`, mounted at `/var/lib/postgresql/data` |
 
-## Request and initialization flow
+PostgreSQL's health check runs `pg_isready` using the configured database user and database name. PgAdmin waits for that health check before starting. Services communicate over the Compose network using the service name `postgres`.
 
-1. Compose creates the network and volume and starts PostgreSQL.
-2. PostgreSQL initializes its data directory and executes mounted initialization scripts.
-3. PgAdmin connects to PostgreSQL by service name over the Compose network.
-4. Users connect with `psql` on `localhost:5433` or manage the database in the browser at `http://localhost:5050`.
+## Configuration
 
-Removing the named volume with `docker-compose down -v` permanently deletes the persisted database files.
+The Compose file takes these settings from environment variables, usually loaded from `.env`:
+
+- `DB_USER` (default `postgres`)
+- `DB_PASSWORD` (required; no default)
+- `DB_NAME` (default `myapp_db`)
+- `PGADMIN_DEFAULT_EMAIL` (required)
+- `PGADMIN_DEFAULT_PASSWORD` (required)
+
+The example template is `.env.example`. Replace example credentials and keep `.env` untracked.
+
+## Initialization and runtime flow
+
+1. Compose creates the bridge network and persistent volume and starts PostgreSQL.
+2. When the data directory is empty, the PostgreSQL image initializes the configured database and runs files mounted from `init-scripts/`.
+3. `init-scripts/01_schema.sql` creates the `users`, `products`, and `orders` tables, constraints, and order lookup indexes. It inserts no example rows and does not rerun on an already initialized volume.
+4. PostgreSQL becomes healthy; PgAdmin starts and can reach it over the internal network.
+5. Host clients connect through `localhost:5433`; PgAdmin is published at `localhost:5050/pgadmin`.
+6. Stopping or recreating containers retains database files in `postgres_data`. Removing the volume deletes those files.
+
+## Operations and boundaries
+
+- The Makefile defines `security-roles`, `audit-enable`, and `performance` targets.
+- Security scripts optionally create non-login roles and row-change auditing for the three business tables.
+- The performance SQL runs read-only statistics queries; no monitoring service or extension is enabled by the Compose file.
+- Shell scripts provide backup, restore, and health-check functionality, but currently assume the container is named `postgres`; the Compose file names it `postgres_db`.
+- There is no TLS setup in the Compose configuration. The database port is published on the host; restrict host/network access as appropriate for the local environment.

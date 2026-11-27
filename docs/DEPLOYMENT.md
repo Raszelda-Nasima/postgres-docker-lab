@@ -1,55 +1,63 @@
 # Local Deployment Guide
 
-This guide covers running PostgreSQL and PgAdmin on your machine with Docker Compose.
+This guide covers running the PostgreSQL and PgAdmin services on a local machine with Docker Compose. No cloud infrastructure is provisioned by this repository.
 
 ## Prerequisites
 
-- Docker Desktop or Docker Engine
-- Docker Compose
-- 2 GB free disk space
+- Docker Engine or Docker Desktop with Docker Compose
+- GNU Make (optional)
 - Host ports 5433 and 5050 available
 
-## Start services
+## Configure and start
 
 ```bash
 cp .env.example .env
-# Edit .env and set a secure DB_PASSWORD
+# Set unique values for DB_PASSWORD and PGADMIN_DEFAULT_PASSWORD in .env
 docker-compose up -d
 docker-compose ps
 docker-compose logs -f postgres
 ```
 
-PostgreSQL is published on `localhost:5433`, and PgAdmin is available at `http://localhost:5050`.
+Compose requires `DB_PASSWORD`, `PGADMIN_DEFAULT_EMAIL`, and `PGADMIN_DEFAULT_PASSWORD`. `DB_USER` defaults to `postgres`, and `DB_NAME` defaults to `myapp_db`.
 
-## Connect
+- PostgreSQL is published at `localhost:5433` (container port 5432).
+- PgAdmin is published at port 5050; because `SCRIPT_NAME=/pgadmin` is configured, use `http://localhost:5050/pgadmin`.
+
+## Connect and verify
 
 ```bash
 docker-compose exec postgres psql -U postgres -d myapp_db
+docker-compose exec postgres pg_isready -U postgres -d myapp_db
+docker-compose exec postgres psql -U postgres -d myapp_db -c "SELECT version();"
+docker-compose exec postgres psql -U postgres -d myapp_db -c "\\dt public.*"
 ```
 
-Or connect from a host PostgreSQL client:
+A host PostgreSQL client can connect with:
 
 ```bash
 psql -h localhost -p 5433 -U postgres -d myapp_db
 ```
 
-## Verify
+Substitute values from `.env` if you changed the default database user or name. The initialization script creates the schema on first initialization of an empty data volume; it is not rerun simply by restarting the services.
+
+## Available Make targets
 
 ```bash
-docker-compose exec postgres pg_isready -U postgres
-docker-compose exec postgres psql -U postgres -d myapp_db -c "SELECT version();"
-docker-compose exec postgres psql -U postgres -d myapp_db -c "\\dt"
+make security-roles
+make audit-enable
+make performance
 ```
 
-## Operations
+These are the only targets in the current Makefile. For normal lifecycle operations, use `docker-compose up -d`, `docker-compose ps`, `docker-compose logs`, and `docker-compose down` directly.
+
+## Backup and health utilities
+
+Scripts are in `backup-scripts/` and `monitoring/check_database_health.sh`. They currently hard-code `CONTAINER_NAME="postgres"`, while Compose sets `container_name: postgres_db`; update the scripts or container name before running them. Do not rely on these commands until that mismatch is resolved. The restore script drops and recreates its target database, so verify the backup and target and confirm deliberately.
+
+## Stop services and preserve data
 
 ```bash
-make status
-make logs-db
-make health-check
-make test
-make backup
-make restore BACKUP=backups/db_backup_YYYYMMDD_HHMMSS.sql
+docker-compose down
 ```
 
-Use `docker-compose down` to stop services while retaining data. Use `docker-compose down -v` to remove the volume and permanently delete database data.
+This removes containers but retains the `postgres_data` named volume. `docker-compose down -v` also removes that volume and permanently deletes its database contents. Do not use volume removal as a schema migration strategy.
